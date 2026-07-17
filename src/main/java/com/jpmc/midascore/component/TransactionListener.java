@@ -8,6 +8,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
+import com.jpmc.midascore.foundation.Incentive;
+import org.springframework.web.client.RestTemplate;
+
 /**
  * Listens for incoming transaction messages from Kafka, validates them,
  * and records valid transactions to the database.
@@ -17,9 +20,11 @@ public class TransactionListener {
 
     private static final Logger logger = LoggerFactory.getLogger(TransactionListener.class);
     private final DatabaseConduit databaseConduit;
+    private final RestTemplate restTemplate;
 
     public TransactionListener(DatabaseConduit databaseConduit) {
         this.databaseConduit = databaseConduit;
+        this.restTemplate = new RestTemplate();
     }
 
     /**
@@ -37,13 +42,17 @@ public class TransactionListener {
 
         if (sender != null && recipient != null) {
             if (sender.getBalance() >= transaction.getAmount()) {
+                
+                Incentive incentive = restTemplate.postForObject("http://localhost:8080/incentive", transaction, Incentive.class);
+                float incentiveAmount = (incentive != null) ? incentive.getAmount() : 0f;
+
                 sender.setBalance(sender.getBalance() - transaction.getAmount());
-                recipient.setBalance(recipient.getBalance() + transaction.getAmount());
+                recipient.setBalance(recipient.getBalance() + transaction.getAmount() + incentiveAmount);
 
                 databaseConduit.save(sender);
                 databaseConduit.save(recipient);
 
-                TransactionRecord transactionRecord = new TransactionRecord(sender, recipient, transaction.getAmount());
+                TransactionRecord transactionRecord = new TransactionRecord(sender, recipient, transaction.getAmount(), incentiveAmount);
                 databaseConduit.save(transactionRecord);
             }
         }
